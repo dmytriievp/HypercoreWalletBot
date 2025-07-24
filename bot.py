@@ -158,8 +158,11 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("remove", remove_wallet))
     app.add_handler(CommandHandler("list", list_wallets))
 
-    app.post_init = lambda _: asyncio.create_task(monitor(app))
-
+    async def start_background_tasks(application):
+    asyncio.create_task(monitor(application))
+    
+    app.post_init = start_background_tasks
+    
     print("Bot running...")
     app.run_polling()
 
