@@ -159,7 +159,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("list", list_wallets))
 
     async def start_background_tasks(application):
-    asyncio.create_task(monitor(application))
+    asyncio.create_task(monitor(application))  # <-- this line MUST be indented
     
     app.post_init = start_background_tasks
     
