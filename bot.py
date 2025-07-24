@@ -14,6 +14,7 @@ WALLET_FILE = "wallet_store.json"
 SEEN_FILLS = {}
 KNOWN_ORDERS = {}
 
+# ========== Wallet Storage ==========
 def load_wallets():
     try:
         with open(WALLET_FILE, "r") as f:
@@ -24,6 +25,27 @@ def load_wallets():
 def save_wallets(wallets):
     with open(WALLET_FILE, "w") as f:
         json.dump(wallets, f)
+
+# ========== Command Handlers ==========
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = """👋 Welcome to the *Hyperliquid Wallet Tracker Bot*!
+
+This bot monitors Hyperliquid Perp and Spot activity in real time.
+
+Here’s what I can do:
+• 🟢 Spot Buy / 🔴 Spot Sell notifications
+• 🟢 Perp Buy / 🔴 Perp Sell notifications
+• 📥 Order Placed alerts (Perp & Spot)
+• ❌ Order Cancelled alerts
+
+🧠 *Commands*:
+• /add `<wallet_address>` – Start tracking a wallet
+• /remove `<wallet_address>` – Stop tracking a wallet
+• /list – Show tracked wallets
+
+Enjoy your alpha feed 👁
+"""
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def add_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     wallet = context.args[0].lower()
@@ -53,6 +75,7 @@ async def list_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = "📋 Followed wallets:\n" + "\n".join(wallets)
         await update.message.reply_text(msg)
 
+# ========== Hyperliquid API Calls ==========
 def get_fills(wallet):
     try:
         response = requests.post("https://api.hyperliquid.xyz/info", json={
@@ -75,6 +98,7 @@ def get_open_orders(wallet):
         print(f"[getOpenOrders] Error for {wallet}: {e}")
         return []
 
+# ========== Format Messages ==========
 def format_fill(fill, wallet):
     is_perp = fill.get("crossed", False)
     side = fill.get("side", "")
@@ -96,16 +120,15 @@ Time: {time}
 """
 
 def format_order(order, wallet, status):
-    # status = "placed" or "cancelled"
     coin = order.get("coin", "")
     px = order.get("px", "")
     sz = order.get("sz", "")
     side = order.get("side", "")
-    isPerp = order.get("isPositionTpsl", False) or coin.endswith("PERP") or order.get("reduceOnly", False)
+    is_perp = order.get("isPositionTpsl", False) or coin.endswith("PERP") or order.get("reduceOnly", False)
 
     label = "📥" if status == "placed" else "❌"
     direction = "BUY" if side == "Buy" else "SELL"
-    trade_type = "PERP" if isPerp else "SPOT"
+    trade_type = "PERP" if is_perp else "SPOT"
 
     return f"""
 👤 `{wallet}`
@@ -114,11 +137,12 @@ Size: {sz}
 Price: {px} USDC
 """
 
+# ========== Monitor Loop ==========
 async def monitor(app):
     while True:
         wallets = load_wallets()
         for wallet in wallets:
-            # Track fills
+            # Fills
             fills = get_fills(wallet)
             for fill in fills:
                 fid = fill.get("fillId")
@@ -127,7 +151,7 @@ async def monitor(app):
                     await app.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
                     SEEN_FILLS[wallet].add(fid)
 
-            # Track orders
+            # Orders
             current_orders = get_open_orders(wallet)
             current_ids = set(o["oid"] for o in current_orders)
             previous_ids = KNOWN_ORDERS.get(wallet, set())
@@ -143,29 +167,34 @@ async def monitor(app):
             # Cancelled orders
             cancelled_ids = previous_ids - current_ids
             for oid in cancelled_ids:
-                order = {"oid": oid}
-                msg = format_order(order, wallet, "cancelled")
+                msg = f"""
+👤 `{wallet}`
+❌ *Order CANCELLED*
+OID: `{oid}`
+"""
                 await app.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
 
             KNOWN_ORDERS[wallet] = current_ids
 
         await asyncio.sleep(10)
 
+# ========== Bot Startup ==========
+async def start_background_tasks(application):
+    asyncio.create_task(monitor(application))
+
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("add", add_wallet))
     app.add_handler(CommandHandler("remove", remove_wallet))
     app.add_handler(CommandHandler("list", list_wallets))
 
-    # Background task for monitoring fills & orders
-    async def start_background_tasks(application):
-        asyncio.create_task(monitor(application))
-    
     app.post_init = start_background_tasks
-    
+
     print("Bot running...")
     app.run_polling()
+
 
 
 
